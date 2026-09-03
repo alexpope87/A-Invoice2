@@ -24,7 +24,7 @@ export type Invoice = {
   confidence: number;
   risk: RiskLevel;
   status: InvoiceStatus;
-  reason?: string;
+  reason?: string | undefined;
   checks: ValidationCheck[];
 };
 
