@@ -75,8 +75,14 @@ function mapRow(row: Row): Invoice {
     status: toStatus(row.status),
     reason: row.review_reason ?? undefined,
     checks: parseChecks(row.validation_results),
-    extractedData: extracted,
-    validationResults: asObject(row.validation_results),
+    extractedData: extracted
+      ? Object.fromEntries(
+          Object.entries(extracted).map(([k, v]) => [
+            k,
+            v === null || v === undefined ? "—" : String(v),
+          ]),
+        )
+      : undefined,
     sourceFileName: row.source_file_name ?? undefined,
     processingTimeSeconds: row.processing_time_seconds ?? undefined,
   };

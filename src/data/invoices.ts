@@ -32,8 +32,7 @@ export type Invoice = {
   status: InvoiceStatus;
   reason?: string | undefined;
   checks: ValidationCheck[];
-  extractedData?: Record<string, unknown> | undefined;
-  validationResults?: Record<string, unknown> | undefined;
+  extractedData?: Record<string, string> | undefined;
   sourceFileName?: string | undefined;
   processingTimeSeconds?: number | undefined;
 };
