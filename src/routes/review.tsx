@@ -1,8 +1,11 @@
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
-import { PageHeader } from "@/components/page-header";
 import { EmptyRow, RiskBadge, StatusBadge } from "@/components/badges";
+import { PageHeader } from "@/components/page-header";
+import { ErrorPanel, LoadingPanel } from "@/components/query-state";
+import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -10,8 +13,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Button } from "@/components/ui/button";
-import { CATEGORIES, formatDate, formatMoney, invoices } from "@/data/invoices";
+import { formatDate, formatLabel, formatMoney } from "@/data/invoices";
+import { listCategories, listInvoices } from "@/lib/invoices.functions";
 
 export const Route = createFileRoute("/review")({
   head: () => ({
@@ -27,8 +30,11 @@ export const Route = createFileRoute("/review")({
         property: "og:description",
         content: "Work through flagged invoices by risk, status and category.",
       },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
     ],
   }),
+  errorComponent: ({ error }) => <ErrorPanel message={error.message} />,
   component: ReviewQueuePage,
 });
 
@@ -39,21 +45,39 @@ function ReviewQueuePage() {
   const [status, setStatus] = useState(ALL);
   const [category, setCategory] = useState(ALL);
 
-  const rows = useMemo(
-    () =>
-      invoices
-        .filter((i) => i.status === "needs-review" || i.status === "rejected")
-        .filter((i) => (risk === ALL ? true : i.risk === risk))
-        .filter((i) => (status === ALL ? true : i.status === status))
-        .filter((i) => (category === ALL ? true : i.category === category)),
-    [risk, status, category],
-  );
+  const categoriesQuery = useQuery({
+    queryKey: ["categories"],
+    queryFn: () => listCategories(),
+  });
+
+  const queueQuery = useQuery({
+    queryKey: ["review-queue", { risk, status, category }],
+    queryFn: () =>
+      listInvoices({
+        data: {
+          statuses: status === ALL ? ["needs-review", "rejected"] : [status],
+          risk,
+          category,
+          sortKey: "issueDate",
+          sortDesc: true,
+          page: 0,
+          pageSize: 200,
+        },
+      }),
+    placeholderData: keepPreviousData,
+  });
+
+  const rows = queueQuery.data?.rows ?? [];
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-6">
       <PageHeader
         title="Review queue"
-        description={`${rows.length} invoice${rows.length === 1 ? "" : "s"} waiting for a human decision.`}
+        description={
+          queueQuery.isLoading
+            ? "Loading queue…"
+            : `${rows.length} invoice${rows.length === 1 ? "" : "s"} waiting for a human decision.`
+        }
         actions={
           <Button
             variant="outline"
@@ -80,58 +104,72 @@ function ReviewQueuePage() {
           label="Category"
           value={category}
           onChange={setCategory}
-          options={[...CATEGORIES]}
+          options={categoriesQuery.data ?? []}
           width="w-56"
         />
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-border bg-surface">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
-              <th className="px-5 py-2.5 font-medium">Invoice</th>
-              <th className="px-5 py-2.5 font-medium">Supplier</th>
-              <th className="px-5 py-2.5 text-right font-medium">Amount</th>
-              <th className="px-5 py-2.5 font-medium">Risk</th>
-              <th className="px-5 py-2.5 font-medium">Reason</th>
-              <th className="px-5 py-2.5 font-medium">Date</th>
-              <th className="px-5 py-2.5 font-medium">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 && <EmptyRow colSpan={7} label="No invoices match these filters." />}
-            {rows.map((invoice) => (
-              <tr key={invoice.id} className="border-b border-border/60 last:border-0 hover:bg-muted/50">
-                <td className="px-5 py-3">
-                  <Link
-                    to="/invoices/$invoiceId"
-                    params={{ invoiceId: invoice.id }}
-                    className="font-mono text-xs font-medium text-primary hover:underline"
-                  >
-                    {invoice.number}
-                  </Link>
-                </td>
-                <td className="px-5 py-3">{invoice.supplier}</td>
-                <td className="px-5 py-3 text-right font-mono tabular-nums">
-                  {formatMoney(invoice.total)}
-                </td>
-                <td className="px-5 py-3">
-                  <RiskBadge risk={invoice.risk} />
-                </td>
-                <td className="max-w-xs px-5 py-3 text-muted-foreground">
-                  {invoice.reason ?? "—"}
-                </td>
-                <td className="px-5 py-3 font-mono text-xs tabular-nums text-muted-foreground">
-                  {formatDate(invoice.issueDate)}
-                </td>
-                <td className="px-5 py-3">
-                  <StatusBadge status={invoice.status} />
-                </td>
+      {queueQuery.isError ? (
+        <ErrorPanel
+          message={(queueQuery.error as Error).message}
+          onRetry={() => queueQuery.refetch()}
+        />
+      ) : queueQuery.isLoading ? (
+        <LoadingPanel label="Loading review queue…" />
+      ) : (
+        <div className="overflow-x-auto rounded-lg border border-border bg-surface">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
+                <th className="px-5 py-2.5 font-medium">Invoice</th>
+                <th className="px-5 py-2.5 font-medium">Supplier</th>
+                <th className="px-5 py-2.5 text-right font-medium">Amount</th>
+                <th className="px-5 py-2.5 font-medium">Risk</th>
+                <th className="px-5 py-2.5 font-medium">Reason</th>
+                <th className="px-5 py-2.5 font-medium">Date</th>
+                <th className="px-5 py-2.5 font-medium">Status</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {rows.length === 0 && (
+                <EmptyRow colSpan={7} label="No invoices match these filters." />
+              )}
+              {rows.map((invoice) => (
+                <tr
+                  key={invoice.id}
+                  className="border-b border-border/60 last:border-0 hover:bg-muted/50"
+                >
+                  <td className="px-5 py-3">
+                    <Link
+                      to="/invoices/$invoiceId"
+                      params={{ invoiceId: invoice.id }}
+                      className="font-mono text-xs font-medium text-primary hover:underline"
+                    >
+                      {invoice.number}
+                    </Link>
+                  </td>
+                  <td className="px-5 py-3">{invoice.supplier}</td>
+                  <td className="px-5 py-3 text-right font-mono tabular-nums">
+                    {formatMoney(invoice.total, invoice.currency)}
+                  </td>
+                  <td className="px-5 py-3">
+                    <RiskBadge risk={invoice.risk} />
+                  </td>
+                  <td className="max-w-xs px-5 py-3 text-muted-foreground">
+                    {invoice.reason ?? "—"}
+                  </td>
+                  <td className="px-5 py-3 font-mono text-xs tabular-nums text-muted-foreground">
+                    {formatDate(invoice.issueDate)}
+                  </td>
+                  <td className="px-5 py-3">
+                    <StatusBadge status={invoice.status} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -162,7 +200,7 @@ function Filter({
           <SelectItem value="all">All</SelectItem>
           {options.map((o) => (
             <SelectItem key={o} value={o}>
-              {o.replace("-", " ").replace(/^\w/, (c) => c.toUpperCase())}
+              {formatLabel(o)}
             </SelectItem>
           ))}
         </SelectContent>
