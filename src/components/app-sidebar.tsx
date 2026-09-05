@@ -14,17 +14,26 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { reviewQueue } from "@/data/invoices";
+import { useQuery } from "@tanstack/react-query";
+
+import { listInvoices } from "@/lib/invoices.functions";
 
 const items = [
   { title: "Dashboard", url: "/", icon: Gauge },
   { title: "Upload Invoice", url: "/upload", icon: ScanLine },
-  { title: "Review Queue", url: "/review", icon: ListChecks, badge: reviewQueue.length },
+  { title: "Review Queue", url: "/review", icon: ListChecks, needsReviewBadge: true },
   { title: "Invoice History", url: "/history", icon: History },
 ] as const;
 
 export function AppSidebar() {
   const { state } = useSidebar();
+  const reviewCount = useQuery({
+    queryKey: ["review-count"],
+    queryFn: () =>
+      listInvoices({ data: { statuses: ["needs-review"], page: 0, pageSize: 1 } }).then(
+        (r) => r.total,
+      ),
+  }).data;
   const collapsed = state === "collapsed";
   const pathname = useRouterState({ select: (r) => r.location.pathname });
 
@@ -57,9 +66,9 @@ export function AppSidebar() {
                     <Link to={item.url} className="flex items-center gap-2">
                       <item.icon className="size-4" />
                       {!collapsed && <span className="flex-1">{item.title}</span>}
-                      {!collapsed && "badge" in item && item.badge ? (
+                      {!collapsed && "needsReviewBadge" in item && reviewCount ? (
                         <span className="rounded bg-warning-soft px-1.5 py-0.5 font-mono text-[10px] font-semibold text-warning">
-                          {item.badge}
+                          {reviewCount}
                         </span>
                       ) : null}
                     </Link>
@@ -74,7 +83,7 @@ export function AppSidebar() {
       <SidebarFooter className="border-t border-sidebar-border">
         {!collapsed && (
           <div className="px-1 py-1 text-[11px] text-muted-foreground">
-            MVP preview · mock data only
+            Connected to Supabase · demo data
           </div>
         )}
       </SidebarFooter>
