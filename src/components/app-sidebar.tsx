@@ -83,7 +83,7 @@ export function AppSidebar() {
       <SidebarFooter className="border-t border-sidebar-border">
         {!collapsed && (
           <div className="px-1 py-1 text-[11px] text-muted-foreground">
-            MVP preview · mock data only
+            Connected to Supabase · demo data
           </div>
         )}
       </SidebarFooter>
