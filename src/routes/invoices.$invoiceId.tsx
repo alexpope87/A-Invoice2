@@ -1,3 +1,4 @@
+import { queryOptions, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import {
   AlertTriangle,
@@ -13,39 +14,59 @@ import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
 import { RiskBadge, StatusBadge } from "@/components/badges";
+import { ErrorPanel } from "@/components/query-state";
 import { Button } from "@/components/ui/button";
-import { formatDate, formatMoney, getInvoice, type ValidationState } from "@/data/invoices";
+import { formatDate, formatMoney, type ValidationState } from "@/data/invoices";
+import { getInvoiceById } from "@/lib/invoices.functions";
 import { cn } from "@/lib/utils";
 
+const invoiceQuery = (id: string) =>
+  queryOptions({
+    queryKey: ["invoice", id],
+    queryFn: () => getInvoiceById({ data: { id } }),
+  });
+
 export const Route = createFileRoute("/invoices/$invoiceId")({
-  loader: ({ params }) => {
-    const invoice = getInvoice(params.invoiceId);
+  loader: async ({ context, params }) => {
+    const invoice = await context.queryClient.ensureQueryData(invoiceQuery(params.invoiceId));
     if (!invoice) throw notFound();
-    return { invoice };
   },
-  head: ({ loaderData }) => {
-    if (!loaderData) {
-      return {
-        meta: [{ title: "Invoice unavailable — InvoiceAI" }, { name: "robots", content: "noindex" }],
-      };
-    }
-    const { invoice } = loaderData;
-    const title = `Invoice ${invoice.number} — ${invoice.supplier} — InvoiceAI`;
-    const description = `Extracted data, validation checks and risk assessment for invoice ${invoice.number} from ${invoice.supplier}.`;
-    return {
-      meta: [
-        { title },
-        { name: "description", content: description },
-        { property: "og:title", content: title },
-        { property: "og:description", content: description },
-      ],
-    };
-  },
+  head: () => ({
+    meta: [
+      { title: "Invoice analysis — InvoiceAI" },
+      {
+        name: "description",
+        content:
+          "Extracted data, validation checks and risk assessment for a processed supplier invoice.",
+      },
+      { property: "og:title", content: "Invoice analysis — InvoiceAI" },
+      {
+        property: "og:description",
+        content: "Full AI extraction, validation and risk detail for one invoice.",
+      },
+      { property: "og:type", content: "article" },
+      { name: "twitter:card", content: "summary" },
+    ],
+  }),
+  errorComponent: ({ error }) => <ErrorPanel message={error.message} />,
+  notFoundComponent: () => (
+    <div className="mx-auto max-w-md rounded-lg border border-border bg-surface p-8 text-center">
+      <p className="text-sm font-medium">Invoice not found</p>
+      <p className="mt-1 text-xs text-muted-foreground">
+        This invoice no longer exists in the database.
+      </p>
+      <Button asChild variant="outline" className="mt-4">
+        <Link to="/history">Back to history</Link>
+      </Button>
+    </div>
+  ),
   component: InvoiceAnalysis,
 });
 
 function InvoiceAnalysis() {
-  const { invoice } = Route.useLoaderData();
+  const { invoiceId } = Route.useParams();
+  const { data } = useSuspenseQuery(invoiceQuery(invoiceId));
+  const invoice = data!;
   const approved = invoice.status === "auto-approved";
 
   const fields: Array<[string, string]> = [
@@ -55,11 +76,13 @@ function InvoiceAnalysis() {
     ["Invoice date", formatDate(invoice.issueDate)],
     ["Due date", formatDate(invoice.dueDate)],
     ["Category", invoice.category],
-    ["Subtotal", formatMoney(invoice.subtotal)],
-    ["VAT", formatMoney(invoice.vat)],
-    ["Total", formatMoney(invoice.total)],
+    ["Subtotal", formatMoney(invoice.subtotal, invoice.currency)],
+    ["VAT", formatMoney(invoice.vat, invoice.currency)],
+    ["Total", formatMoney(invoice.total, invoice.currency)],
     ["Currency", invoice.currency],
   ];
+
+  const extractedEntries = Object.entries(invoice.extractedData ?? {});
 
   return (
     <div className="mx-auto max-w-[1200px] space-y-6">
@@ -72,7 +95,9 @@ function InvoiceAnalysis() {
 
       <PageHeader
         title={`Invoice ${invoice.number}`}
-        description={`${invoice.supplier} · processed ${formatDate(invoice.issueDate)}`}
+        description={`${invoice.supplier} · processed ${formatDate(invoice.issueDate)}${
+          invoice.sourceFileName ? ` · ${invoice.sourceFileName}` : ""
+        }`}
         actions={
           <>
             <StatusBadge status={invoice.status} />
@@ -125,6 +150,23 @@ function InvoiceAnalysis() {
               </div>
             ))}
           </dl>
+          {extractedEntries.length > 0 && (
+            <div className="border-t border-border px-5 py-4">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                Additional extracted fields
+              </p>
+              <dl className="mt-3 grid gap-x-6 gap-y-2 sm:grid-cols-2">
+                {extractedEntries.map(([key, value]) => (
+                  <div key={key} className="flex justify-between gap-3 text-xs">
+                    <dt className="text-muted-foreground">{key.replace(/_/g, " ")}</dt>
+                    <dd className="truncate font-mono text-foreground">
+                      {value === null || value === undefined ? "—" : String(value)}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          )}
         </section>
 
         <section className="space-y-4">
@@ -161,16 +203,16 @@ function InvoiceAnalysis() {
             </div>
             <ul className="mt-4 space-y-2 text-xs text-muted-foreground">
               <li className="flex gap-2">
-                <ShieldCheck className="size-3.5 shrink-0" /> Supplier known since 2024 · 18
-                invoices on file
+                <ShieldCheck className="size-3.5 shrink-0" /> Validation{" "}
+                {invoice.status === "auto-approved" ? "passed" : "requires attention"}
               </li>
               <li className="flex gap-2">
                 <ShieldCheck className="size-3.5 shrink-0" /> Amount within{" "}
                 {invoice.total > 5000 ? "the top decile" : "the usual range"} for this supplier
               </li>
               <li className="flex gap-2">
-                <ShieldCheck className="size-3.5 shrink-0" /> No duplicate payment detected in the
-                last 90 days
+                <ShieldCheck className="size-3.5 shrink-0" /> Processed in{" "}
+                {invoice.processingTimeSeconds?.toFixed(1) ?? "—"}s
               </li>
             </ul>
           </div>
@@ -181,17 +223,23 @@ function InvoiceAnalysis() {
         <h2 className="flex items-center gap-2 border-b border-border px-5 py-3.5 text-sm font-semibold">
           <ListChecks className="size-4" /> Validation
         </h2>
-        <ul className="divide-y divide-border">
-          {invoice.checks.map((check) => (
-            <li key={check.id} className="flex items-start gap-3 px-5 py-4">
-              <CheckIcon state={check.state} />
-              <div>
-                <p className="text-sm font-medium text-foreground">{check.label}</p>
-                <p className="mt-0.5 text-xs text-muted-foreground">{check.detail}</p>
-              </div>
-            </li>
-          ))}
-        </ul>
+        {invoice.checks.length === 0 ? (
+          <p className="px-5 py-6 text-sm text-muted-foreground">
+            No validation results were stored for this invoice.
+          </p>
+        ) : (
+          <ul className="divide-y divide-border">
+            {invoice.checks.map((check) => (
+              <li key={check.id} className="flex items-start gap-3 px-5 py-4">
+                <CheckIcon state={check.state} />
+                <div>
+                  <p className="text-sm font-medium text-foreground">{check.label}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{check.detail}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <div className="flex flex-wrap justify-end gap-2">
