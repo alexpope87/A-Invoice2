@@ -66,9 +66,9 @@ export function AppSidebar() {
                     <Link to={item.url} className="flex items-center gap-2">
                       <item.icon className="size-4" />
                       {!collapsed && <span className="flex-1">{item.title}</span>}
-                      {!collapsed && "badge" in item && item.badge ? (
+                      {!collapsed && "needsReviewBadge" in item && reviewCount ? (
                         <span className="rounded bg-warning-soft px-1.5 py-0.5 font-mono text-[10px] font-semibold text-warning">
-                          {item.badge}
+                          {reviewCount}
                         </span>
                       ) : null}
                     </Link>
