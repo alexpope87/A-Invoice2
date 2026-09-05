@@ -14,17 +14,26 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { reviewQueue } from "@/data/invoices";
+import { useQuery } from "@tanstack/react-query";
+
+import { listInvoices } from "@/lib/invoices.functions";
 
 const items = [
   { title: "Dashboard", url: "/", icon: Gauge },
   { title: "Upload Invoice", url: "/upload", icon: ScanLine },
-  { title: "Review Queue", url: "/review", icon: ListChecks, badge: reviewQueue.length },
+  { title: "Review Queue", url: "/review", icon: ListChecks, needsReviewBadge: true },
   { title: "Invoice History", url: "/history", icon: History },
 ] as const;
 
 export function AppSidebar() {
   const { state } = useSidebar();
+  const reviewCount = useQuery({
+    queryKey: ["review-count"],
+    queryFn: () =>
+      listInvoices({ data: { statuses: ["needs-review"], page: 0, pageSize: 1 } }).then(
+        (r) => r.total,
+      ),
+  }).data;
   const collapsed = state === "collapsed";
   const pathname = useRouterState({ select: (r) => r.location.pathname });
 
