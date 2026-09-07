@@ -55,7 +55,8 @@ function ReviewQueuePage() {
     queryFn: () =>
       listInvoices({
         data: {
-          statuses: status === ALL ? ["needs-review", "rejected"] : [status],
+          // Review Queue only ever shows invoices awaiting a human decision.
+          statuses: ["needs-review"],
           risk,
           category,
           sortKey: "issueDate",
@@ -98,7 +99,7 @@ function ReviewQueuePage() {
           label="Status"
           value={status}
           onChange={setStatus}
-          options={["needs-review", "rejected"]}
+          options={["needs-review"]}
         />
         <Filter
           label="Category"
