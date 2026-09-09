@@ -181,9 +181,24 @@ export const Route = createFileRoute("/api/public/extract-invoice")({
           if (!openaiRes.ok) {
             const detail = await openaiRes.text();
             console.error("OpenAI API error", openaiRes.status, detail.slice(0, 300));
-            if (openaiRes.status === 429) return json({ error: "OpenAI rate limit reached" }, 429);
+            let detailMessage: string | undefined;
+            try {
+              const parsed = JSON.parse(detail) as { error?: { message?: string } };
+              detailMessage = parsed.error?.message;
+            } catch {
+              detailMessage = detail.slice(0, 300);
+            }
+            if (openaiRes.status === 429) {
+              return json(
+                { error: "OpenAI rate limit or quota issue", detail: detailMessage },
+                429,
+              );
+            }
             if (openaiRes.status === 401) return json({ error: "OpenAI rejected the API key" }, 500);
-            return json({ error: "OpenAI API request failed", status: openaiRes.status }, 502);
+            return json(
+              { error: "OpenAI API request failed", status: openaiRes.status, detail: detailMessage },
+              502,
+            );
           }
 
           const result = (await openaiRes.json()) as {
