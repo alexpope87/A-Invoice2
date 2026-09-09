@@ -14,6 +14,7 @@ import { Route as HistoryRouteImport } from './routes/history'
 import { Route as ReviewRouteImport } from './routes/review'
 import { Route as UploadRouteImport } from './routes/upload'
 import { Route as InvoicesInvoiceIdRouteImport } from './routes/invoices.$invoiceId'
+import { Route as ApiPublicExtractInvoiceRouteImport } from './routes/api/public/extract-invoice'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -40,6 +41,11 @@ const InvoicesInvoiceIdRoute = InvoicesInvoiceIdRouteImport.update({
   path: '/invoices/$invoiceId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicExtractInvoiceRoute = ApiPublicExtractInvoiceRouteImport.update({
+  id: '/api/public/extract-invoice',
+  path: '/api/public/extract-invoice',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -47,6 +53,7 @@ export interface FileRoutesByFullPath {
   '/review': typeof ReviewRoute
   '/upload': typeof UploadRoute
   '/invoices/$invoiceId': typeof InvoicesInvoiceIdRoute
+  '/api/public/extract-invoice': typeof ApiPublicExtractInvoiceRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -54,6 +61,7 @@ export interface FileRoutesByTo {
   '/review': typeof ReviewRoute
   '/upload': typeof UploadRoute
   '/invoices/$invoiceId': typeof InvoicesInvoiceIdRoute
+  '/api/public/extract-invoice': typeof ApiPublicExtractInvoiceRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -62,12 +70,25 @@ export interface FileRoutesById {
   '/review': typeof ReviewRoute
   '/upload': typeof UploadRoute
   '/invoices/$invoiceId': typeof InvoicesInvoiceIdRoute
+  '/api/public/extract-invoice': typeof ApiPublicExtractInvoiceRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/history' | '/review' | '/upload' | '/invoices/$invoiceId'
+  fullPaths:
+    | '/'
+    | '/history'
+    | '/review'
+    | '/upload'
+    | '/invoices/$invoiceId'
+    | '/api/public/extract-invoice'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/history' | '/review' | '/upload' | '/invoices/$invoiceId'
+  to:
+    | '/'
+    | '/history'
+    | '/review'
+    | '/upload'
+    | '/invoices/$invoiceId'
+    | '/api/public/extract-invoice'
   id:
     | '__root__'
     | '/'
@@ -75,6 +96,7 @@ export interface FileRouteTypes {
     | '/review'
     | '/upload'
     | '/invoices/$invoiceId'
+    | '/api/public/extract-invoice'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -83,6 +105,7 @@ export interface RootRouteChildren {
   ReviewRoute: typeof ReviewRoute
   UploadRoute: typeof UploadRoute
   InvoicesInvoiceIdRoute: typeof InvoicesInvoiceIdRoute
+  ApiPublicExtractInvoiceRoute: typeof ApiPublicExtractInvoiceRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -122,6 +145,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof InvoicesInvoiceIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/extract-invoice': {
+      id: '/api/public/extract-invoice'
+      path: '/api/public/extract-invoice'
+      fullPath: '/api/public/extract-invoice'
+      preLoaderRoute: typeof ApiPublicExtractInvoiceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -131,6 +161,7 @@ const rootRouteChildren: RootRouteChildren = {
   ReviewRoute: ReviewRoute,
   UploadRoute: UploadRoute,
   InvoicesInvoiceIdRoute: InvoicesInvoiceIdRoute,
+  ApiPublicExtractInvoiceRoute: ApiPublicExtractInvoiceRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
