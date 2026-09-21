@@ -123,7 +123,7 @@ function UploadPage() {
     <div className="mx-auto max-w-4xl space-y-6">
       <PageHeader
         title="Upload invoice"
-        description="Supported format: PDF up to 10 MB. AI extraction is simulated in this MVP."
+        description="Supported format: PDF up to 10 MB. Fields are extracted with Google Gemini."
       />
 
       <div
@@ -241,8 +241,8 @@ function UploadPage() {
       )}
 
       <div className="rounded-lg border border-border bg-accent/50 p-4 text-sm text-muted-foreground">
-        The PDF is stored in your private Supabase storage bucket, then a realistic demo invoice
-        record is created in the database. Real AI extraction will replace this step later.
+        The PDF is stored in your private Supabase storage bucket, then Google Gemini reads it and the
+        extracted fields are saved to the invoice record. Risk scoring and validation come next.
       </div>
     </div>
   );
