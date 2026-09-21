@@ -2,36 +2,48 @@
  * POST /api/public/extract-invoice
  *
  * Downloads a PDF from the private "invoices" Supabase Storage bucket and sends
- * it to the OpenAI Responses API for structured extraction.
+ * it to the Google Gemini API for structured extraction.
  *
- * This first version is TEST ONLY: it does not write to the database and does
- * not change the upload flow. The extracted JSON is returned in the response.
+ * This version is TEST ONLY: it does not write to the database and does not
+ * change the upload flow. The extracted JSON is returned in the response.
  *
- * SECURITY: OPENAI_API_KEY is read server-side only, never logged, and never
+ * SECURITY: GEMINI_API_KEY is read server-side only, never logged, and never
  * shipped to the browser. Invoice contents are never logged.
  */
 import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
+import { GoogleGenAI, Type } from "@google/genai";
 
-// Current OpenAI model that accepts PDF (input_file) content.
-const MODEL = "gpt-4.1";
+// Current Gemini model with document/PDF understanding + structured output.
+const MODEL = "gemini-2.5-flash";
 
-const SCHEMA = {
-  type: "object",
-  additionalProperties: false,
+const RESPONSE_SCHEMA = {
+  type: Type.OBJECT,
   properties: {
-    supplier_name: { type: ["string", "null"] },
-    invoice_number: { type: ["string", "null"] },
-    invoice_date: { type: ["string", "null"] },
-    due_date: { type: ["string", "null"] },
-    subtotal: { type: ["number", "null"] },
-    vat: { type: ["number", "null"] },
-    total: { type: ["number", "null"] },
-    currency: { type: ["string", "null"] },
-    category: { type: ["string", "null"] },
-    confidence_score: { type: ["number", "null"] },
+    supplier_name: { type: Type.STRING, nullable: true },
+    invoice_number: { type: Type.STRING, nullable: true },
+    invoice_date: { type: Type.STRING, nullable: true },
+    due_date: { type: Type.STRING, nullable: true },
+    subtotal: { type: Type.NUMBER, nullable: true },
+    vat: { type: Type.NUMBER, nullable: true },
+    total: { type: Type.NUMBER, nullable: true },
+    currency: { type: Type.STRING, nullable: true },
+    category: { type: Type.STRING, nullable: true },
+    confidence_score: { type: Type.NUMBER },
   },
   required: [
+    "supplier_name",
+    "invoice_number",
+    "invoice_date",
+    "due_date",
+    "subtotal",
+    "vat",
+    "total",
+    "currency",
+    "category",
+    "confidence_score",
+  ],
+  propertyOrdering: [
     "supplier_name",
     "invoice_number",
     "invoice_date",
@@ -92,9 +104,9 @@ export const Route = createFileRoute("/api/public/extract-invoice")({
           if (!invoiceId) return json({ error: "Missing required field: invoice_id" }, 400);
           if (!storagePath) return json({ error: "Missing required field: storage_path" }, 400);
 
-          const openaiKey = process.env["OPENAI_API_KEY"];
-          if (!openaiKey) {
-            return json({ error: "OPENAI_API_KEY is not configured on the server" }, 500);
+          const geminiKey = process.env["GEMINI_API_KEY"];
+          if (!geminiKey) {
+            return json({ error: "GEMINI_API_KEY is not configured on the server" }, 500);
           }
 
           const supabaseUrl = process.env["SUPABASE_URL"];
@@ -137,82 +149,55 @@ export const Route = createFileRoute("/api/public/extract-invoice")({
           const bytes = new Uint8Array(await file.arrayBuffer());
           if (bytes.byteLength === 0) return json({ error: "The stored PDF is empty" }, 422);
 
-          const fileName = storagePath.split("/").pop() || "invoice.pdf";
-          const dataUrl = `data:application/pdf;base64,${toBase64(bytes)}`;
+          const ai = new GoogleGenAI({ apiKey: geminiKey });
 
-          let openaiRes: Response;
+          let text: string | undefined;
           try {
-            openaiRes = await fetch("https://api.openai.com/v1/responses", {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${openaiKey}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                model: MODEL,
-                instructions: INSTRUCTIONS,
-                input: [
-                  {
-                    role: "user",
-                    content: [
-                      { type: "input_file", filename: fileName, file_data: dataUrl },
-                      {
-                        type: "input_text",
-                        text: "Extract the invoice fields from this PDF and return JSON only.",
+            const response = await ai.models.generateContent({
+              model: MODEL,
+              contents: [
+                {
+                  role: "user",
+                  parts: [
+                    {
+                      inlineData: {
+                        mimeType: "application/pdf",
+                        data: toBase64(bytes),
                       },
-                    ],
-                  },
-                ],
-                text: {
-                  format: {
-                    type: "json_schema",
-                    name: "invoice_extraction",
-                    strict: true,
-                    schema: SCHEMA,
-                  },
+                    },
+                    {
+                      text: "Extract the invoice fields from this PDF and return JSON only.",
+                    },
+                  ],
                 },
-              }),
+              ],
+              config: {
+                systemInstruction: INSTRUCTIONS,
+                responseMimeType: "application/json",
+                responseSchema: RESPONSE_SCHEMA,
+              },
             });
+            text = response.text;
           } catch (e) {
-            console.error("OpenAI request failed to send", e instanceof Error ? e.message : e);
-            return json({ error: "Could not reach the OpenAI API" }, 502);
-          }
-
-          if (!openaiRes.ok) {
-            const detail = await openaiRes.text();
-            console.error("OpenAI API error", openaiRes.status, detail.slice(0, 300));
-            let detailMessage: string | undefined;
-            try {
-              const parsed = JSON.parse(detail) as { error?: { message?: string } };
-              detailMessage = parsed.error?.message;
-            } catch {
-              detailMessage = detail.slice(0, 300);
-            }
-            if (openaiRes.status === 429) {
-              return json(
-                { error: "OpenAI rate limit or quota issue", detail: detailMessage },
-                429,
-              );
-            }
-            if (openaiRes.status === 401) return json({ error: "OpenAI rejected the API key" }, 500);
+            const message = e instanceof Error ? e.message : String(e);
+            console.error("Gemini API request failed", message.slice(0, 300));
+            const status = /\b(401|403|API key)\b/i.test(message)
+              ? 500
+              : /\b429\b|quota|rate limit/i.test(message)
+                ? 429
+                : 502;
             return json(
-              { error: "OpenAI API request failed", status: openaiRes.status, detail: detailMessage },
-              502,
+              {
+                error:
+                  status === 500
+                    ? "Gemini rejected the API key"
+                    : status === 429
+                      ? "Gemini rate limit or quota issue"
+                      : "Gemini API request failed",
+                detail: message.slice(0, 300),
+              },
+              status,
             );
-          }
-
-          const result = (await openaiRes.json()) as {
-            output_text?: string;
-            output?: Array<{ content?: Array<{ text?: string }> }>;
-          };
-
-          let text = result.output_text;
-          if (!text && Array.isArray(result.output)) {
-            for (const item of result.output) {
-              for (const part of item.content ?? []) {
-                if (typeof part.text === "string") text = (text ?? "") + part.text;
-              }
-            }
           }
 
           if (!text || !text.trim()) {
