@@ -8,7 +8,7 @@ import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { supabase } from "@/integrations/supabase/client";
-import { createDemoInvoice } from "@/lib/invoices.functions";
+import { createUploadedInvoice, saveExtraction } from "@/lib/invoices.functions";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/upload")({
@@ -208,16 +208,26 @@ function UploadPage() {
           )}
 
           {error && (
-            <p className="mt-4 rounded-md border border-danger/30 bg-danger-soft px-3 py-2 text-xs text-danger">
-              {error}
-            </p>
+            <div className="mt-4 rounded-md border border-danger/30 bg-danger-soft px-3 py-2 text-xs text-danger">
+              <p>{error}</p>
+              {pending && (
+                <p className="mt-1 text-muted-foreground">
+                  The PDF was saved. You can retry the AI processing.
+                </p>
+              )}
+            </div>
           )}
 
-          <div className="mt-5 flex justify-end">
+          <div className="mt-5 flex justify-end gap-2">
+            {pending && error && !processing && (
+              <Button variant="outline" onClick={retry}>
+                <ScanLine className="size-4" /> Retry processing
+              </Button>
+            )}
             <Button onClick={analyze} disabled={processing}>
               {processing ? (
                 <>
-                  <Loader2 className="size-4 animate-spin" /> Analyzing…
+                  <Loader2 className="size-4 animate-spin" /> {STEPS[step] ?? "Analyzing"}…
                 </>
               ) : (
                 <>
@@ -226,6 +236,7 @@ function UploadPage() {
               )}
             </Button>
           </div>
+
         </div>
       )}
 
