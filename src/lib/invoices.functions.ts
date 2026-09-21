@@ -241,79 +241,85 @@ export const getDashboardData = createServerFn({ method: "GET" }).handler(async 
 });
 
 /**
- * DEMO ONLY: creates a realistic invoice record after a PDF upload.
- * Replace with real AI extraction + authenticated writes before production.
+ * Creates the invoice record right after the PDF lands in the private
+ * "invoices" bucket. No mock values: the row starts as PROCESSING and is
+ * filled in by the Gemini extraction step.
+ * DEMO ONLY write path — replace with authenticated writes before production.
  */
-export const createDemoInvoice = createServerFn({ method: "POST" })
-  .inputValidator((input: { fileName: string; storagePath?: string }) => input)
+export const createUploadedInvoice = createServerFn({ method: "POST" })
+  .inputValidator((input: { fileName: string; storagePath: string }) => input)
   .handler(async ({ data }) => {
     const supabase = client();
-    const subtotal = Math.round((420 + Math.random() * 4200) * 100) / 100;
-    const vat = Math.round(subtotal * 0.22 * 100) / 100;
-    const total = Math.round((subtotal + vat) * 100) / 100;
-    const today = new Date();
-    const iso = (d: Date) => d.toISOString().slice(0, 10);
-    const due = new Date(today);
-    due.setDate(due.getDate() + 30);
-    const confidence = Math.round((88 + Math.random() * 10) * 10) / 10;
-    const approved = confidence >= 93;
-
     const { data: row, error } = await supabase
       .from("invoices")
       .insert({
-        invoice_number: `INV-2026-${Math.floor(5000 + Math.random() * 4000)}`,
-        supplier_name: "Rossi Costruzioni S.r.l.",
-        invoice_date: iso(today),
-        due_date: iso(due),
-        subtotal,
-        vat,
-        total,
-        currency: "EUR",
-        category: "Professional services",
-        confidence_score: confidence,
-        risk_level: approved ? "LOW" : "MEDIUM",
-        status: approved ? "AUTO-APPROVED" : "NEEDS REVIEW",
-        review_reason: approved ? null : "Confidence below the auto-approval threshold",
-        validation_passed: approved,
-        processing_time_seconds: Math.round((2 + Math.random() * 3) * 10) / 10,
+        status: "PROCESSING",
         source_file_name: data.fileName,
-        extracted_data: {
-          supplier_vat: "IT04421890156",
-          payment_terms: "30 days net",
-          storage_path: data.storagePath ?? null,
-          line_items: 3,
-        },
-        validation_results: {
-          passed: approved,
-          checks: [
-            {
-              label: "Required fields",
-              state: "pass",
-              detail: "All mandatory fields were detected.",
-            },
-            {
-              label: "Total calculation",
-              state: "pass",
-              detail: "Subtotal + VAT matches the stated total.",
-            },
-            {
-              label: "VAT check",
-              state: approved ? "pass" : "warn",
-              detail: approved
-                ? "22% standard rate applied."
-                : "VAT rate could not be confirmed against supplier history.",
-            },
-            {
-              label: "Date validation",
-              state: "pass",
-              detail: "Invoice date and due date are consistent.",
-            },
-          ],
-        },
+        extracted_data: { storage_path: data.storagePath },
       })
       .select("id")
       .single();
 
     if (error) throw new Error(error.message);
-    return { id: row.id };
+    return { id: row.id, storagePath: data.storagePath };
   });
+
+export type ExtractedInvoice = {
+  supplier_name?: string | null;
+  invoice_number?: string | null;
+  invoice_date?: string | null;
+  due_date?: string | null;
+  subtotal?: number | null;
+  vat?: number | null;
+  total?: number | null;
+  currency?: string | null;
+  category?: string | null;
+  confidence_score?: number | null;
+};
+
+function num(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function str(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/**
+ * Persists the values returned by the Gemini extraction endpoint onto the
+ * existing invoice row. Risk scoring and validation rules come later.
+ */
+export const saveExtraction = createServerFn({ method: "POST" })
+  .inputValidator((input: { invoiceId: string; extracted: ExtractedInvoice }) => input)
+  .handler(async ({ data }) => {
+    const supabase = client();
+    const e = data.extracted ?? {};
+
+    const { data: current } = await supabase
+      .from("invoices")
+      .select("extracted_data")
+      .eq("id", data.invoiceId)
+      .maybeSingle();
+    const previous = asObject(current?.extracted_data) ?? {};
+
+    const { error } = await supabase
+      .from("invoices")
+      .update({
+        supplier_name: str(e.supplier_name),
+        invoice_number: str(e.invoice_number),
+        invoice_date: str(e.invoice_date),
+        due_date: str(e.due_date),
+        subtotal: num(e.subtotal),
+        vat: num(e.vat),
+        total: num(e.total),
+        currency: str(e.currency),
+        category: str(e.category),
+        confidence_score: num(e.confidence_score),
+        extracted_data: { ...previous, ...e, extracted_by: "gemini" },
+      })
+      .eq("id", data.invoiceId);
+
+    if (error) throw new Error(error.message);
+    return { id: data.invoiceId };
+  });
+

@@ -8,7 +8,7 @@ import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { supabase } from "@/integrations/supabase/client";
-import { createDemoInvoice } from "@/lib/invoices.functions";
+import { createUploadedInvoice, saveExtraction } from "@/lib/invoices.functions";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/upload")({
@@ -32,13 +32,9 @@ export const Route = createFileRoute("/upload")({
   component: UploadPage,
 });
 
-const STEPS = [
-  "Uploading document",
-  "Extracting fields",
-  "Validating totals & VAT",
-  "Classifying category",
-  "Scoring risk",
-];
+const STEPS = ["Uploading PDF", "Processing with Gemini", "Saving extracted data"];
+
+type Pending = { invoiceId: string; storagePath: string } | null;
 
 function UploadPage() {
   const navigate = useNavigate();
@@ -48,6 +44,7 @@ function UploadPage() {
   const [dragging, setDragging] = useState(false);
   const [step, setStep] = useState(-1);
   const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState<Pending>(null);
 
   const processing = step >= 0;
 
@@ -56,9 +53,32 @@ function UploadPage() {
     setFile(f);
     setStep(-1);
     setError(null);
+    setPending(null);
   }
 
-  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  async function extractAndSave(invoiceId: string, storagePath: string) {
+    setStep(1);
+    const response = await fetch("/api/public/extract-invoice", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ invoice_id: invoiceId, storage_path: storagePath }),
+    });
+    const payload = (await response.json().catch(() => ({}))) as {
+      extracted?: Record<string, unknown>;
+      error?: string;
+      detail?: string;
+    };
+    if (!response.ok || !payload.extracted) {
+      throw new Error(payload.error ?? "AI extraction failed");
+    }
+
+    setStep(2);
+    await saveExtraction({ data: { invoiceId, extracted: payload.extracted } });
+
+    await queryClient.invalidateQueries();
+    toast.success("Invoice extracted");
+    navigate({ to: "/invoices/$invoiceId", params: { invoiceId } });
+  }
 
   async function analyze() {
     if (!file) return;
@@ -69,20 +89,14 @@ function UploadPage() {
       const { error: uploadError } = await supabase.storage
         .from("invoices")
         .upload(path, file, { contentType: "application/pdf", upsert: false });
-      if (uploadError) throw new Error(uploadError.message);
+      if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`);
 
-      for (let i = 1; i < STEPS.length; i++) {
-        setStep(i);
-        await wait(700);
-      }
-
-      const { id } = await createDemoInvoice({
+      const { id } = await createUploadedInvoice({
         data: { fileName: file.name, storagePath: path },
       });
+      setPending({ invoiceId: id, storagePath: path });
 
-      await queryClient.invalidateQueries();
-      toast.success("Invoice processed");
-      navigate({ to: "/invoices/$invoiceId", params: { invoiceId: id } });
+      await extractAndSave(id, path);
     } catch (e) {
       setStep(-1);
       const message = e instanceof Error ? e.message : "Processing failed";
@@ -91,11 +105,25 @@ function UploadPage() {
     }
   }
 
+  async function retry() {
+    if (!pending) return;
+    setError(null);
+    try {
+      await extractAndSave(pending.invoiceId, pending.storagePath);
+    } catch (e) {
+      setStep(-1);
+      const message = e instanceof Error ? e.message : "Processing failed";
+      setError(message);
+      toast.error(message);
+    }
+  }
+
+
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <PageHeader
         title="Upload invoice"
-        description="Supported format: PDF up to 10 MB. AI extraction is simulated in this MVP."
+        description="Supported format: PDF up to 10 MB. Fields are extracted with Google Gemini."
       />
 
       <div
@@ -180,16 +208,26 @@ function UploadPage() {
           )}
 
           {error && (
-            <p className="mt-4 rounded-md border border-danger/30 bg-danger-soft px-3 py-2 text-xs text-danger">
-              {error}
-            </p>
+            <div className="mt-4 rounded-md border border-danger/30 bg-danger-soft px-3 py-2 text-xs text-danger">
+              <p>{error}</p>
+              {pending && (
+                <p className="mt-1 text-muted-foreground">
+                  The PDF was saved. You can retry the AI processing.
+                </p>
+              )}
+            </div>
           )}
 
-          <div className="mt-5 flex justify-end">
+          <div className="mt-5 flex justify-end gap-2">
+            {pending && error && !processing && (
+              <Button variant="outline" onClick={retry}>
+                <ScanLine className="size-4" /> Retry processing
+              </Button>
+            )}
             <Button onClick={analyze} disabled={processing}>
               {processing ? (
                 <>
-                  <Loader2 className="size-4 animate-spin" /> Analyzing…
+                  <Loader2 className="size-4 animate-spin" /> {STEPS[step] ?? "Analyzing"}…
                 </>
               ) : (
                 <>
@@ -198,12 +236,13 @@ function UploadPage() {
               )}
             </Button>
           </div>
+
         </div>
       )}
 
       <div className="rounded-lg border border-border bg-accent/50 p-4 text-sm text-muted-foreground">
-        The PDF is stored in your private Supabase storage bucket, then a realistic demo invoice
-        record is created in the database. Real AI extraction will replace this step later.
+        The PDF is stored in your private Supabase storage bucket, then Google Gemini reads it and the
+        extracted fields are saved to the invoice record. Risk scoring and validation come next.
       </div>
     </div>
   );
