@@ -22,14 +22,27 @@ function client() {
   return createClient<Database>(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
     global: {
-      fetch: (input, init) => {
+      fetch: async (input, init) => {
         const h = new Headers(init?.headers);
         if (key.startsWith("sb_") && h.get("Authorization") === `Bearer ${key}`) {
           h.delete("Authorization");
         }
         h.set("apikey", key);
-        return fetch(input, { ...init, headers: h });
+        // Transient network hiccups ("fetch failed") would otherwise blank the page.
+        let lastError: unknown;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            return await fetch(input, { ...init, headers: h });
+          } catch (e) {
+            lastError = e;
+            await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
+          }
+        }
+        throw new Error(
+          `Could not reach the invoice database. ${lastError instanceof Error ? lastError.message : ""}`.trim(),
+        );
       },
+
     },
   });
 }
