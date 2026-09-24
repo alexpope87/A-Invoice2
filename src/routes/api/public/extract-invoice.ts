@@ -152,35 +152,51 @@ export const Route = createFileRoute("/api/public/extract-invoice")({
           const ai = new GoogleGenAI({ apiKey: geminiKey });
 
           let text: string | undefined;
+          const transient = (m: string) =>
+            /\b(500|503|504)\b|UNAVAILABLE|overloaded|high demand|fetch failed/i.test(m);
           try {
-            const response = await ai.models.generateContent({
-              model: MODEL,
-              contents: [
-                {
-                  role: "user",
-                  parts: [
+            let lastError: unknown;
+            for (let attempt = 0; attempt < 4; attempt++) {
+              try {
+                const response = await ai.models.generateContent({
+                  model: MODEL,
+                  contents: [
                     {
-                      inlineData: {
-                        mimeType: "application/pdf",
-                        data: toBase64(bytes),
-                      },
-                    },
-                    {
-                      text: "Extract the invoice fields from this PDF and return JSON only.",
+                      role: "user",
+                      parts: [
+                        { inlineData: { mimeType: "application/pdf", data: toBase64(bytes) } },
+                        { text: "Extract the invoice fields from this PDF and return JSON only." },
+                      ],
                     },
                   ],
-                },
-              ],
-              config: {
-                systemInstruction: INSTRUCTIONS,
-                responseMimeType: "application/json",
-                responseSchema: RESPONSE_SCHEMA,
-              },
-            });
-            text = response.text;
+                  config: {
+                    systemInstruction: INSTRUCTIONS,
+                    responseMimeType: "application/json",
+                    responseSchema: RESPONSE_SCHEMA,
+                  },
+                });
+                text = response.text;
+                lastError = undefined;
+                break;
+              } catch (err) {
+                lastError = err;
+                const m = err instanceof Error ? err.message : String(err);
+                if (!transient(m) || attempt === 3) break;
+                await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
+              }
+            }
+            if (lastError) throw lastError;
           } catch (e) {
             const message = e instanceof Error ? e.message : String(e);
             console.error("Gemini API request failed", message.slice(0, 300));
+            if (transient(message)) {
+              // Temporary Gemini outage: answered as a handled, retryable result
+              // (not a server crash). The upload page shows "Retry processing".
+              return json({
+                error: "Gemini is temporarily busy. Please retry processing in a moment.",
+                retryable: true,
+              });
+            }
             const status = /\b(401|403|API key)\b/i.test(message)
               ? 500
               : /\b429\b|quota|rate limit/i.test(message)
