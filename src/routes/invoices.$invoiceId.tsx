@@ -73,12 +73,14 @@ function InvoiceAnalysis() {
   const approved = invoice.status === "auto-approved";
 
   async function decide(action: "approve" | "reject") {
+    console.log("decide", action);
     setDeciding(action);
     try {
       await setManualDecision({ data: { invoiceId, action } });
       await queryClient.invalidateQueries();
       toast.success(action === "approve" ? "Invoice approved" : "Invoice rejected");
     } catch (e) {
+      console.error("decide failed", e);
       toast.error(e instanceof Error ? e.message : "Could not save the decision");
     } finally {
       setDeciding(null);
