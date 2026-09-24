@@ -30,6 +30,7 @@ export type EngineInput = {
   vat: number | null;
   total: number | null;
   confidence_score: number | null;
+  currency: string | null;
 };
 
 export type EngineResult = {
@@ -59,12 +60,12 @@ export function runValidation(i: EngineInput): EngineCheck[] {
   const checks: EngineCheck[] = [];
 
   // Required fields
-  const required: Array<keyof EngineInput> = ["supplier_name", "invoice_number", "invoice_date", "total"];
+  const required: Array<keyof EngineInput> = ["supplier_name", "invoice_number", "invoice_date", "total", "currency"];
   const missing = required.filter((k) => i[k] === null || i[k] === undefined || i[k] === "");
   checks.push(
     missing.length
       ? check("required_fields", "Required fields", "FAIL", `Missing: ${missing.join(", ")}.`)
-      : check("required_fields", "Required fields", "PASS", "Supplier, number, date and total present."),
+      : check("required_fields", "Required fields", "PASS", "Supplier, number, date, total and currency present."),
   );
 
   // Total calculation
@@ -103,28 +104,28 @@ export function runValidation(i: EngineInput): EngineCheck[] {
     checks.push(check("date_validation", "Date validation", "PASS", "Dates are valid and consistent."));
   }
 
-  // VAT check
-  if (i.subtotal === null || i.vat === null || i.subtotal <= 0) {
-    checks.push(check("vat_check", "VAT check", "NOT_CHECKED", "Subtotal or VAT missing."));
+  // VAT check — informational only: no assumption about which rate is legally correct.
+  if (i.subtotal === null || i.vat === null || !(i.subtotal > 0)) {
+    checks.push(check("vat_check", "VAT check", "NOT_CHECKED", "Effective VAT rate could not be calculated."));
   } else {
     const rate = (i.vat / i.subtotal) * 100;
-    const known = COMMON_VAT_RATES.some((r) => Math.abs(rate - r) <= 0.1);
     checks.push(
-      known
-        ? check("vat_check", "VAT check", "PASS", `Effective VAT rate ${rate.toFixed(1)}%.`)
-        : check("vat_check", "VAT check", "FAIL", `Unusual effective VAT rate ${rate.toFixed(2)}%.`),
+      check("vat_check", "VAT check", "PASS", `Effective VAT rate ${rate.toFixed(2)}% (informational).`),
     );
   }
 
-  // Amount sanity
-  if (i.total === null) {
-    checks.push(check("amount_sanity", "Amount sanity", "NOT_CHECKED", "Total missing."));
-  } else if (i.total <= 0 || i.total > MAX_SANE_AMOUNT) {
-    checks.push(
-      check("amount_sanity", "Amount sanity", "FAIL", `Total ${i.total.toFixed(2)} is outside the plausible range.`),
-    );
+  // Amount sanity — no arbitrary maximum.
+  const amounts = { total: i.total, subtotal: i.subtotal, vat: i.vat };
+  const invalid = Object.entries(amounts).filter(([, v]) => v !== null && !Number.isFinite(v));
+  const negative = Object.entries(amounts).filter(([, v]) => v !== null && Number.isFinite(v) && v < 0);
+  if (invalid.length || negative.length) {
+    const parts = [
+      ...invalid.map(([k]) => `${k} is not a valid number`),
+      ...negative.map(([k]) => `${k} is negative`),
+    ];
+    checks.push(check("amount_sanity", "Amount sanity", "FAIL", `${parts.join(", ")}.`));
   } else {
-    checks.push(check("amount_sanity", "Amount sanity", "PASS", "Total is within the plausible range."));
+    checks.push(check("amount_sanity", "Amount sanity", "PASS", "No negative or invalid amounts."));
   }
 
   return checks;
@@ -140,11 +141,11 @@ const REASON: Partial<Record<CheckKey, Record<"FAIL" | "NOT_CHECKED", string>>> 
     NOT_CHECKED: "Invoice dates could not be verified.",
   },
   vat_check: {
-    FAIL: "VAT amount does not correspond to a standard VAT rate.",
+    FAIL: "VAT could not be verified.",
     NOT_CHECKED: "VAT could not be verified.",
   },
   amount_sanity: {
-    FAIL: "Invoice total is outside the plausible range.",
+    FAIL: "Invoice contains negative or invalid amounts.",
     NOT_CHECKED: "Invoice amount could not be verified.",
   },
 };
@@ -195,6 +196,12 @@ export function assessRisk(input: EngineInput, checks: EngineCheck[]): EngineRes
     status,
     reasons: status === "AUTO-APPROVED" ? [] : reasons.length ? reasons : ["Manual verification required."],
   };
+}
+
+export function effectiveVatRate(i: EngineInput): number | null {
+  return i.subtotal !== null && i.vat !== null && i.subtotal > 0
+    ? Math.round((i.vat / i.subtotal) * 10000) / 100
+    : null;
 }
 
 export function runEngine(input: EngineInput): EngineResult {
