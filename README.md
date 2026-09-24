@@ -60,150 +60,155 @@ Decision Engine
     ↓
 LOW RISK ─────────→ AUTO-APPROVED
 MEDIUM/HIGH RISK ─→ HUMAN REVIEW
+```
 
-Gemini does not decide whether an invoice should be approved or rejected.
+Gemini does **not** decide whether an invoice should be approved or rejected.
 
 The AI reads and structures the document. Business rules make the operational routing decision.
 
 Final rejection remains a human decision.
 
-🏗️ Tech Stack
-Component	Technology
-Application / UI	React / TanStack
-Development Platform	Lovable
-Database	Supabase / PostgreSQL
-File Storage	Supabase Storage
-AI Document Processing	Google Gemini API
-Backend AI Integration	Server-side API route
-Version Control	GitHub
-🔍 Validation Engine
+## 🏗️ Tech Stack
+
+| Component | Technology |
+|---|---|
+| Application / UI | React / TanStack |
+| Development Platform | Lovable |
+| Database | Supabase / PostgreSQL |
+| File Storage | Supabase Storage |
+| AI Document Processing | Google Gemini API |
+| Backend AI Integration | Server-side API route |
+| Version Control | GitHub |
+
+## 🔍 Validation Engine
 
 After AI extraction, deterministic rules verify the invoice.
 
 Current validation checks include:
 
-required fields
-subtotal + VAT vs total consistency
-invoice and due-date consistency
-VAT information
-amount sanity checks
+- required fields
+- subtotal + VAT vs total consistency
+- invoice and due-date consistency
+- VAT information
+- amount sanity checks
 
 Validation results can be:
 
-PASS
-FAIL
-NOT_CHECKED
+- `PASS`
+- `FAIL`
+- `NOT_CHECKED`
 
-NOT_CHECKED is used when there is insufficient information to reliably perform a validation.
+`NOT_CHECKED` is used when there is insufficient information to reliably perform a validation.
 
-⚙️ Risk & Decision Engine
+## ⚙️ Risk & Decision Engine
 
 The MVP uses three risk levels:
 
-LOW
+### LOW
 
 High extraction confidence and required validation checks pass.
 
-→ AUTO-APPROVED
+→ `AUTO-APPROVED`
 
-MEDIUM
+### MEDIUM
 
 The invoice contains uncertainty, such as moderate AI confidence or validation checks that could not be completed.
 
-→ NEEDS REVIEW
+→ `NEEDS REVIEW`
 
-HIGH
+### HIGH
 
 Important validation checks fail or extraction confidence is too low.
 
-→ NEEDS REVIEW
+→ `NEEDS REVIEW`
 
-The automated system never rejects an invoice. REJECTED remains a manual human decision.
+The automated system never rejects an invoice. `REJECTED` remains a manual human decision.
 
-👤 Human-in-the-Loop
+## 👤 Human-in-the-Loop
 
 InvoiceAI is designed to automate clear cases while escalating uncertain cases.
 
 Instead of allowing the LLM to make financial approval decisions autonomously:
 
-AI extracts → rules validate → system routes → humans handle exceptions.
+**AI extracts → rules validate → system routes → humans handle exceptions.**
 
 This makes the workflow more transparent and auditable.
 
-📊 Business Impact
+## 📊 Business Impact
 
 The dashboard tracks:
 
-invoices processed
-auto-approved invoices
-invoices requiring review
-automation rate
-average AI confidence
-estimated processing hours saved
-estimated operational savings
+- invoices processed
+- auto-approved invoices
+- invoices requiring review
+- automation rate
+- average AI confidence
+- estimated processing hours saved
+- estimated operational savings
 
 For the MVP, estimated productivity benefits use demo assumptions:
 
-8 minutes of manual processing saved per auto-approved invoice
-€25/hour illustrative operational cost
+- **8 minutes** of manual processing saved per auto-approved invoice
+- **€25/hour** illustrative operational cost
 
-These figures are assumptions used to demonstrate how ROI could be measured and are not measured production savings.
+These figures are assumptions used to demonstrate how ROI could be measured and are **not measured production savings**.
 
-🔐 Security Approach
+## 🔐 Security Approach
 
 The MVP includes several basic security principles:
 
-invoice PDFs are stored in a private Supabase Storage bucket
-the Gemini API key is stored server-side
-API credentials are never exposed to the browser
-Supabase Row Level Security (RLS) is enabled
-development uses synthetic/demo invoice data
+- invoice PDFs are stored in a private Supabase Storage bucket
+- the Gemini API key is stored server-side
+- API credentials are never exposed to the browser
+- Supabase Row Level Security (RLS) is enabled
+- development uses synthetic/demo invoice data
 
-The current RLS configuration is designed for an MVP/demo environment and would require authenticated, user-specific policies before production deployment.
+> The current RLS configuration is designed for an MVP/demo environment and would require authenticated, user-specific policies before production deployment.
 
-⚠️ Current Limitations
+## ⚠️ Current Limitations
 
 InvoiceAI is a portfolio MVP rather than a production accounting system.
 
 Current limitations include:
 
-no production authentication/user-management system
-simplified validation and risk rules
-business rules are not yet configurable by organization
-no ERP/accounting-system integration
-no purchase-order matching
-no duplicate invoice detection
-Gemini service availability can temporarily affect document processing
-development RLS policies are not production-ready
-🚀 Potential Next Steps
+- no production authentication/user-management system
+- simplified validation and risk rules
+- business rules are not yet configurable by organization
+- no ERP/accounting-system integration
+- no purchase-order matching
+- no duplicate invoice detection
+- Gemini service availability can temporarily affect document processing
+- development RLS policies are not production-ready
+
+## 🚀 Potential Next Steps
 
 Possible production-oriented improvements include:
 
-authentication and organization-level permissions
-supplier master-data matching
-duplicate invoice detection
-purchase-order matching
-configurable approval policies
-complete audit trail
-ERP/accounting integrations
-advanced exception management
-production-grade monitoring
-📚 Project Documentation
+- authentication and organization-level permissions
+- supplier master-data matching
+- duplicate invoice detection
+- purchase-order matching
+- configurable approval policies
+- complete audit trail
+- ERP/accounting integrations
+- advanced exception management
+- production-grade monitoring
+
+## 📚 Project Documentation
 
 Additional documentation will cover:
 
-Business Case & ROI
-System Architecture
-AI Workflow
-Testing & Validation
-📌 Project Status
+- Business Case & ROI
+- System Architecture
+- AI Workflow
+- Testing & Validation
 
-MVP / Portfolio Project
+## 📌 Project Status
+
+**MVP / Portfolio Project**
 
 Core workflow:
 
-PDF → AI Extraction → Validation → Risk Assessment → Decision → Human Review
+**PDF → AI Extraction → Validation → Risk Assessment → Decision → Human Review**
 
 The project was built to demonstrate the design of an AI-enabled business process, combining Generative AI, deterministic automation, exception handling and human oversight.
-
-
