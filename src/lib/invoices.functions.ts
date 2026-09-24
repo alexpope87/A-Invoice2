@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { createClient } from "@supabase/supabase-js";
 
 import type { Database, Json } from "@/integrations/supabase/types";
-import { runEngine } from "@/lib/risk-engine";
+import { effectiveVatRate, runEngine } from "@/lib/risk-engine";
 import {
   DB_RISK,
   DB_STATUS,
@@ -338,7 +338,11 @@ export const saveExtraction = createServerFn({ method: "POST" })
     try {
       const result = runEngine(fields);
       decision = {
-        validation_results: { engine: "v1", checks: result.checks } as unknown as Json,
+        validation_results: {
+          engine: "v1",
+          effective_vat_rate: effectiveVatRate(fields),
+          checks: result.checks,
+        } as unknown as Json,
         validation_passed: result.validationPassed,
         risk_level: result.risk,
         status: result.status,
@@ -369,3 +373,51 @@ export const saveExtraction = createServerFn({ method: "POST" })
     return { id: data.invoiceId };
   });
 
+
+/**
+ * Manual human decision. Never re-runs Gemini; keeps validation results and
+ * risk level, and records an audit trail inside validation_results.
+ * DEMO ONLY write path — replace with authenticated writes before production.
+ */
+export const setManualDecision = createServerFn({ method: "POST" })
+  .inputValidator((input: { invoiceId: string; action: "approve" | "reject" }) => {
+    if (!input?.invoiceId || !["approve", "reject"].includes(input.action)) {
+      throw new Error("Invalid decision request");
+    }
+    return input;
+  })
+  .handler(async ({ data }) => {
+    const supabase = client();
+    const { data: current, error: readError } = await supabase
+      .from("invoices")
+      .select("status, review_reason, validation_results")
+      .eq("id", data.invoiceId)
+      .maybeSingle();
+    if (readError) throw new Error(readError.message);
+    if (!current) throw new Error("Invoice not found");
+
+    const results = asObject(current.validation_results) ?? {};
+    const history = Array.isArray(results["manual_decisions"]) ? results["manual_decisions"] : [];
+    const entry = {
+      action: data.action === "approve" ? "MANUAL_APPROVAL" : "MANUAL_REJECTION",
+      at: new Date().toISOString(),
+      previous_status: current.status,
+      previous_review_reason: current.review_reason,
+    };
+    const status = data.action === "approve" ? "AUTO-APPROVED" : "REJECTED";
+    const label = data.action === "approve" ? "Manually approved" : "Manually rejected";
+    // Keep the original automated reason (from before any manual decision) for audit context.
+    const first = asObject(history[0]);
+    const original = (first ? first["previous_review_reason"] : current.review_reason) as string | null;
+
+    const { error } = await supabase
+      .from("invoices")
+      .update({
+        status,
+        review_reason: original ? `${label}. Original review reason: ${original}` : `${label}.`,
+        validation_results: { ...results, manual_decisions: [...history, entry] } as unknown as Json,
+      })
+      .eq("id", data.invoiceId);
+    if (error) throw new Error(error.message);
+    return { id: data.invoiceId, status };
+  });
