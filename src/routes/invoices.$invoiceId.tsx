@@ -18,7 +18,7 @@ import { RiskBadge, StatusBadge } from "@/components/badges";
 import { ErrorPanel } from "@/components/query-state";
 import { Button } from "@/components/ui/button";
 import { formatDate, formatMoney, type ValidationState } from "@/data/invoices";
-import { getInvoiceById } from "@/lib/invoices.functions";
+import { getInvoiceById, setManualDecision } from "@/lib/invoices.functions";
 import { cn } from "@/lib/utils";
 
 const invoiceQuery = (id: string) =>
@@ -73,14 +73,12 @@ function InvoiceAnalysis() {
   const approved = invoice.status === "auto-approved";
 
   async function decide(action: "approve" | "reject") {
-    console.log("decide", action);
     setDeciding(action);
     try {
       await setManualDecision({ data: { invoiceId, action } });
       await queryClient.invalidateQueries();
       toast.success(action === "approve" ? "Invoice approved" : "Invoice rejected");
     } catch (e) {
-      console.error("decide failed", e);
       toast.error(e instanceof Error ? e.message : "Could not save the decision");
     } finally {
       setDeciding(null);
