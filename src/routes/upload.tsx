@@ -32,7 +32,7 @@ export const Route = createFileRoute("/upload")({
   component: UploadPage,
 });
 
-const STEPS = ["Uploading PDF", "Processing with Gemini", "Saving extracted data"];
+const STEPS = ["Uploading PDF", "Processing with Gemini", "Validating & scoring risk"];
 
 type Pending = { invoiceId: string; storagePath: string } | null;
 
@@ -242,7 +242,7 @@ function UploadPage() {
 
       <div className="rounded-lg border border-border bg-accent/50 p-4 text-sm text-muted-foreground">
         The PDF is stored in your private Supabase storage bucket, then Google Gemini reads it and the
-        extracted fields are saved to the invoice record. Risk scoring and validation come next.
+        extracted fields are saved to the invoice record. Deterministic validation and risk rules then decide approval or review.
       </div>
     </div>
   );

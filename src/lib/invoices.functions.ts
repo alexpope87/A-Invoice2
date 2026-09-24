@@ -1,7 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { createClient } from "@supabase/supabase-js";
 
-import type { Database } from "@/integrations/supabase/types";
+import type { Database, Json } from "@/integrations/supabase/types";
+import { runEngine } from "@/lib/risk-engine";
 import {
   DB_RISK,
   DB_STATUS,
@@ -191,6 +192,7 @@ export const getDashboardData = createServerFn({ method: "GET" }).handler(async 
   const autoApproved = invoices.filter((i) => i.status === "auto-approved").length;
   const needsReview = invoices.filter((i) => i.status === "needs-review").length;
   const rejected = invoices.filter((i) => i.status === "rejected").length;
+  const processingCount = invoices.filter((i) => i.status === "processing").length;
   const hoursSaved = (autoApproved * 8) / 60;
   const confidenceValues = invoices.filter((i) => i.confidence > 0).map((i) => i.confidence);
 
@@ -199,7 +201,10 @@ export const getDashboardData = createServerFn({ method: "GET" }).handler(async 
     autoApproved,
     needsReview,
     rejected,
-    automationRate: total ? Math.round((autoApproved / total) * 100) : 0,
+    // Denominator excludes invoices still in Processing.
+    automationRate: total - processingCount
+      ? Math.round((autoApproved / (total - processingCount)) * 100)
+      : 0,
     averageConfidence: confidenceValues.length
       ? Math.round(
           (confidenceValues.reduce((a, b) => a + b, 0) / confidenceValues.length) * 10,
@@ -302,24 +307,65 @@ export const saveExtraction = createServerFn({ method: "POST" })
       .maybeSingle();
     const previous = asObject(current?.extracted_data) ?? {};
 
+    const fields = {
+      supplier_name: str(e.supplier_name),
+      invoice_number: str(e.invoice_number),
+      invoice_date: str(e.invoice_date),
+      due_date: str(e.due_date),
+      subtotal: num(e.subtotal),
+      vat: num(e.vat),
+      total: num(e.total),
+      currency: str(e.currency),
+      category: str(e.category),
+      confidence_score: num(e.confidence_score),
+    };
+
+    // 1. Save extracted data first so it is preserved even if later steps fail.
     const { error } = await supabase
       .from("invoices")
-      .update({
-        supplier_name: str(e.supplier_name),
-        invoice_number: str(e.invoice_number),
-        invoice_date: str(e.invoice_date),
-        due_date: str(e.due_date),
-        subtotal: num(e.subtotal),
-        vat: num(e.vat),
-        total: num(e.total),
-        currency: str(e.currency),
-        category: str(e.category),
-        confidence_score: num(e.confidence_score),
-        extracted_data: { ...previous, ...e, extracted_by: "gemini" },
-      })
+      .update({ ...fields, extracted_data: { ...previous, ...e, extracted_by: "gemini" } })
       .eq("id", data.invoiceId);
-
     if (error) throw new Error(error.message);
+
+    // 2. Deterministic validation → risk → decision. Fails safe to human review.
+    let decision: {
+      validation_results?: Json;
+      validation_passed?: boolean;
+      risk_level: string | null;
+      status: string;
+      review_reason: string | null;
+    };
+    try {
+      const result = runEngine(fields);
+      decision = {
+        validation_results: { engine: "v1", checks: result.checks } as unknown as Json,
+        validation_passed: result.validationPassed,
+        risk_level: result.risk,
+        status: result.status,
+        review_reason: result.reasons.length ? result.reasons.join(" ") : null,
+      };
+    } catch {
+      decision = {
+        risk_level: null,
+        status: "NEEDS REVIEW",
+        review_reason: "System processing error during risk assessment — manual review required.",
+      };
+    }
+
+    const { error: decisionError } = await supabase
+      .from("invoices")
+      .update(decision)
+      .eq("id", data.invoiceId);
+    if (decisionError) {
+      await supabase
+        .from("invoices")
+        .update({
+          status: "NEEDS REVIEW",
+          review_reason: "System processing error while saving the decision — manual review required.",
+        })
+        .eq("id", data.invoiceId);
+      throw new Error(decisionError.message);
+    }
     return { id: data.invoiceId };
   });
 

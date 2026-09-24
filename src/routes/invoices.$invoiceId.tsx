@@ -127,11 +127,17 @@ function InvoiceAnalysis() {
               approved ? "text-success" : "text-warning",
             )}
           >
-            {approved ? "Auto-approved" : "Needs review"}
+            {approved
+              ? "Auto-approved"
+              : invoice.status === "rejected"
+                ? "Rejected"
+                : invoice.status === "processing"
+                  ? "Processing"
+                  : "Needs review"}
           </p>
           <p className="mt-0.5 text-sm text-foreground">
             {approved
-              ? "All validation rules passed and confidence exceeded the auto-approval threshold."
+              ? "All validation rules passed and confidence met the 90% auto-approval threshold."
               : (invoice.reason ?? "Manual verification required before approval.")}
           </p>
         </div>
@@ -182,9 +188,9 @@ function InvoiceAnalysis() {
               <div
                 className={cn(
                   "h-full rounded-full",
-                  invoice.confidence >= 93
+                  invoice.confidence >= 90
                     ? "bg-success"
-                    : invoice.confidence >= 80
+                    : invoice.confidence >= 70
                       ? "bg-warning"
                       : "bg-danger",
                 )}
@@ -192,27 +198,25 @@ function InvoiceAnalysis() {
               />
             </div>
             <p className="mt-3 text-xs text-muted-foreground">
-              Auto-approval threshold: 93% with no failed validation rule.
+              Auto-approval requires ≥90% confidence and all key checks passing; below 70% is high
+              risk.
             </p>
           </div>
 
           <div className="rounded-lg border border-border bg-surface p-5">
             <h2 className="text-sm font-semibold">Risk assessment</h2>
-            <div className="mt-3">
+            <div className="mt-3 flex items-center gap-2">
               <RiskBadge risk={invoice.risk} />
+              <StatusBadge status={invoice.status} />
             </div>
             <ul className="mt-4 space-y-2 text-xs text-muted-foreground">
               <li className="flex gap-2">
-                <ShieldCheck className="size-3.5 shrink-0" /> Validation{" "}
-                {invoice.status === "auto-approved" ? "passed" : "requires attention"}
+                <ShieldCheck className="size-3.5 shrink-0" />
+                {invoice.checks.filter((c) => c.state === "pass").length} of{" "}
+                {invoice.checks.length} validation checks passed
               </li>
               <li className="flex gap-2">
-                <ShieldCheck className="size-3.5 shrink-0" /> Amount within{" "}
-                {invoice.total > 5000 ? "the top decile" : "the usual range"} for this supplier
-              </li>
-              <li className="flex gap-2">
-                <ShieldCheck className="size-3.5 shrink-0" /> Processed in{" "}
-                {invoice.processingTimeSeconds?.toFixed(1) ?? "—"}s
+                <ShieldCheck className="size-3.5 shrink-0" /> Decided by deterministic rules (no AI)
               </li>
             </ul>
           </div>
