@@ -1,4 +1,5 @@
-import { queryOptions, useSuspenseQuery } from "@tanstack/react-query";
+import { queryOptions, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import {
   AlertTriangle,
@@ -66,8 +67,23 @@ export const Route = createFileRoute("/invoices/$invoiceId")({
 function InvoiceAnalysis() {
   const { invoiceId } = Route.useParams();
   const { data } = useSuspenseQuery(invoiceQuery(invoiceId));
+  const queryClient = useQueryClient();
+  const [deciding, setDeciding] = useState<"approve" | "reject" | null>(null);
   const invoice = data!;
   const approved = invoice.status === "auto-approved";
+
+  async function decide(action: "approve" | "reject") {
+    setDeciding(action);
+    try {
+      await setManualDecision({ data: { invoiceId, action } });
+      await queryClient.invalidateQueries();
+      toast.success(action === "approve" ? "Invoice approved" : "Invoice rejected");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not save the decision");
+    } finally {
+      setDeciding(null);
+    }
+  }
 
   const fields: Array<[string, string]> = [
     ["Supplier", invoice.supplier],
@@ -136,9 +152,10 @@ function InvoiceAnalysis() {
                   : "Needs review"}
           </p>
           <p className="mt-0.5 text-sm text-foreground">
-            {approved
-              ? "All validation rules passed and confidence met the 90% auto-approval threshold."
-              : (invoice.reason ?? "Manual verification required before approval.")}
+            {invoice.reason ??
+              (approved
+                ? "All validation rules passed and confidence met the 90% auto-approval threshold."
+                : "Manual verification required before approval.")}
           </p>
         </div>
       </div>
@@ -247,18 +264,19 @@ function InvoiceAnalysis() {
       </section>
 
       <div className="flex flex-wrap justify-end gap-2">
-        <Button variant="outline" onClick={() => toast("Sent to the review queue (demo)")}>
-          Send to review
-        </Button>
         <Button
           variant="outline"
           className="text-danger"
-          onClick={() => toast("Invoice rejected (demo)")}
+          disabled={deciding !== null || invoice.status === "rejected"}
+          onClick={() => decide("reject")}
         >
-          <ThumbsDown className="size-4" /> Reject
+          <ThumbsDown className="size-4" /> {deciding === "reject" ? "Rejecting…" : "Reject"}
         </Button>
-        <Button onClick={() => toast.success("Invoice approved (demo)")}>
-          <ThumbsUp className="size-4" /> Approve
+        <Button
+          disabled={deciding !== null || invoice.status === "auto-approved"}
+          onClick={() => decide("approve")}
+        >
+          <ThumbsUp className="size-4" /> {deciding === "approve" ? "Approving…" : "Approve"}
         </Button>
       </div>
     </div>
