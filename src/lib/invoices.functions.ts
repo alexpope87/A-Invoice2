@@ -406,7 +406,9 @@ export const setManualDecision = createServerFn({ method: "POST" })
     };
     const status = data.action === "approve" ? "AUTO-APPROVED" : "REJECTED";
     const label = data.action === "approve" ? "Manually approved" : "Manually rejected";
-    const original = current.review_reason?.replace(/^Manually (approved|rejected)\. (Original review reason: )?/, "");
+    // Keep the original automated reason (from before any manual decision) for audit context.
+    const first = asObject(history[0]);
+    const original = (first ? first["previous_review_reason"] : current.review_reason) as string | null;
 
     const { error } = await supabase
       .from("invoices")

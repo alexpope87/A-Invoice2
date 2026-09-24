@@ -136,7 +136,7 @@ function Dashboard() {
             <KpiCard
               label="Rejected"
               value={kpis.rejected.toString()}
-              hint="Blocked by validation rules"
+              hint="Rejected by a reviewer"
               icon={TriangleAlert}
               tone="warning"
             />
