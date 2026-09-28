@@ -4,8 +4,9 @@
  * Downloads a PDF from the private "invoices" Supabase Storage bucket and sends
  * it to the Google Gemini API for structured extraction.
  *
- * This version is TEST ONLY: it does not write to the database and does not
- * change the upload flow. The extracted JSON is returned in the response.
+ * Returns the extracted JSON; the upload page saves it and runs the
+ * deterministic validation/risk/decision pipeline. Upstream failures keep
+ * their status: 429 (quota, no auto-retry), 503 (after one retry), 502 other.
  *
  * SECURITY: GEMINI_API_KEY is read server-side only, never logged, and never
  * shipped to the browser. Invoice contents are never logged.
@@ -150,70 +151,106 @@ export const Route = createFileRoute("/api/public/extract-invoice")({
           if (bytes.byteLength === 0) return json({ error: "The stored PDF is empty" }, 422);
 
           const ai = new GoogleGenAI({ apiKey: geminiKey });
+          const pdfData = toBase64(bytes);
+
+          // Retry policy: max 2 attempts. Only 503 UNAVAILABLE gets one retry
+          // after ~5s. 429 is never retried automatically (protects quota).
+          const MAX_ATTEMPTS = 2;
+          const RETRY_503_DELAY_MS = 5000;
+
+          const classify = (err: unknown) => {
+            const message = err instanceof Error ? err.message : String(err);
+            const rawStatus = (err as { status?: unknown })?.status;
+            const status =
+              typeof rawStatus === "number"
+                ? rawStatus
+                : Number(message.match(/\b(4\d\d|5\d\d)\b/)?.[1] ?? 0);
+            let category: "quota" | "unavailable" | "auth" | "other" = "other";
+            if (status === 429 || /RESOURCE_EXHAUSTED|quota|rate limit/i.test(message))
+              category = "quota";
+            else if (status === 503 || /UNAVAILABLE|overloaded|high demand/i.test(message))
+              category = "unavailable";
+            else if (status === 401 || status === 403 || /API key|PERMISSION_DENIED/i.test(message))
+              category = "auth";
+            const delay = message.match(/retryDelay"?\s*:\s*"?(\d+(?:\.\d+)?)s/i)?.[1];
+            const retryAfterSeconds = delay ? Math.ceil(Number(delay)) : null;
+            return { status, category, retryAfterSeconds };
+          };
 
           let text: string | undefined;
-          const transient = (m: string) =>
-            /\b(500|503|504)\b|UNAVAILABLE|overloaded|high demand|fetch failed/i.test(m);
-          try {
-            let lastError: unknown;
-            for (let attempt = 0; attempt < 4; attempt++) {
-              try {
-                const response = await ai.models.generateContent({
-                  model: MODEL,
-                  contents: [
-                    {
-                      role: "user",
-                      parts: [
-                        { inlineData: { mimeType: "application/pdf", data: toBase64(bytes) } },
-                        { text: "Extract the invoice fields from this PDF and return JSON only." },
-                      ],
-                    },
-                  ],
-                  config: {
-                    systemInstruction: INSTRUCTIONS,
-                    responseMimeType: "application/json",
-                    responseSchema: RESPONSE_SCHEMA,
+          let failure: ReturnType<typeof classify> | null = null;
+          for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            try {
+              const response = await ai.models.generateContent({
+                model: MODEL,
+                contents: [
+                  {
+                    role: "user",
+                    parts: [
+                      { inlineData: { mimeType: "application/pdf", data: pdfData } },
+                      { text: "Extract the invoice fields from this PDF and return JSON only." },
+                    ],
                   },
-                });
-                text = response.text;
-                lastError = undefined;
-                break;
-              } catch (err) {
-                lastError = err;
-                const m = err instanceof Error ? err.message : String(err);
-                if (!transient(m) || attempt === 3) break;
-                await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
-              }
-            }
-            if (lastError) throw lastError;
-          } catch (e) {
-            const message = e instanceof Error ? e.message : String(e);
-            console.error("Gemini API request failed", message.slice(0, 300));
-            if (transient(message)) {
-              // Temporary Gemini outage: answered as a handled, retryable result
-              // (not a server crash). The upload page shows "Retry processing".
-              return json({
-                error: "Gemini is temporarily busy. Please retry processing in a moment.",
-                retryable: true,
+                ],
+                config: {
+                  systemInstruction: INSTRUCTIONS,
+                  responseMimeType: "application/json",
+                  responseSchema: RESPONSE_SCHEMA,
+                },
               });
+              text = response.text;
+              failure = null;
+              break;
+            } catch (err) {
+              failure = classify(err);
+              // Sanitized diagnostics only: no key, no invoice content.
+              console.error("Gemini request failed", {
+                attempt,
+                status: failure.status,
+                category: failure.category,
+              });
+              if (failure.category === "unavailable" && attempt < MAX_ATTEMPTS) {
+                await new Promise((r) => setTimeout(r, RETRY_503_DELAY_MS));
+                continue;
+              }
+              break;
             }
-            const status = /\b(401|403|API key)\b/i.test(message)
-              ? 500
-              : /\b429\b|quota|rate limit/i.test(message)
-                ? 429
-                : 502;
-            return json(
-              {
-                error:
-                  status === 500
-                    ? "Gemini rejected the API key"
-                    : status === 429
-                      ? "Gemini rate limit or quota issue"
-                      : "Gemini API request failed",
-                detail: message.slice(0, 300),
-              },
-              status,
-            );
+          }
+
+          if (failure) {
+            if (failure.category === "quota") {
+              const secs = failure.retryAfterSeconds;
+              const wait = secs ? `about ${secs} seconds` : "about 1 minute";
+              return new Response(
+                JSON.stringify({
+                  error: `Gemini request limit reached. Please wait ${wait} and retry processing.`,
+                  retryable: true,
+                  retry_after_seconds: secs ?? 60,
+                }),
+                {
+                  status: 429,
+                  headers: {
+                    "Content-Type": "application/json",
+                    "Cache-Control": "no-store",
+                    "Retry-After": String(secs ?? 60),
+                  },
+                },
+              );
+            }
+            if (failure.category === "unavailable") {
+              return json(
+                {
+                  error:
+                    "Gemini is temporarily unavailable due to high demand. Your invoice has been saved. Please retry processing in a moment.",
+                  retryable: true,
+                },
+                503,
+              );
+            }
+            if (failure.category === "auth") {
+              return json({ error: "Gemini rejected the server API key configuration" }, 500);
+            }
+            return json({ error: "Gemini API request failed", retryable: true }, 502);
           }
 
           if (!text || !text.trim()) {
