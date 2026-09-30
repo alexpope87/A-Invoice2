@@ -475,7 +475,6 @@ Exception decision
 Required fields      PASS
 Total calculation    PASS
 Date validation      PASS
-VAT information      PASS
 Amount sanity        PASS
 ```
 
@@ -544,7 +543,7 @@ A human investigates the discrepancy.
 
 ## 18. Error Handling
 
-AI APIs are external services and can temporarily fail.
+AI APIs are external services and can temporarily fail or become rate-limited.
 
 InvoiceAI therefore avoids treating an AI service failure as a business decision.
 
@@ -557,32 +556,45 @@ No fabricated data
         ↓
 PDF remains stored
         ↓
-Retry processing
+User can retry processing
 ```
 
-The current MVP includes automatic retry handling for temporary Gemini availability errors.
+The current implementation distinguishes between different upstream failures.
 
-If the service remains unavailable, the user receives a clear processing message and can retry later.
+For temporary `503 UNAVAILABLE` responses, the system performs one controlled retry after a short delay.
+
+For `429 RESOURCE_EXHAUSTED` responses, the system does not automatically retry repeatedly, avoiding unnecessary requests while the API quota is exhausted.
+
+If extraction ultimately fails:
+
+- extracted data is not fabricated
+- validation and decision logic do not run on invented data
+- the original PDF remains stored
+- the invoice record is preserved
+- the user receives an appropriate processing message
+- processing can be retried later
+
+This keeps AI infrastructure failures separate from invoice validation failures.
 
 ---
 
-## 19. Current Known Issue
+## 19. AI Service Reliability
 
-During MVP testing, Gemini has occasionally returned temporary service-availability errors while processing PDFs.
+During development, Gemini occasionally returned temporary `503 UNAVAILABLE` responses and API quota (`429`) errors while processing PDFs.
 
-Retry handling has been implemented, but the behavior still requires additional live testing.
+These cases were used to improve the application's failure-handling strategy.
 
-This is treated as an infrastructure/service availability issue rather than an invoice validation failure.
+The Gemini integration was subsequently configured to use `gemini-3.5-flash-lite`, and the complete PDF processing workflow was successfully validated end-to-end.
 
-A production architecture could add:
+External AI availability remains a dependency of the system, so a production architecture could additionally introduce:
 
-- longer exponential backoff
 - asynchronous processing
 - job queues
-- monitoring
+- monitoring and alerting
 - provider/model fallback
-- failure alerts
+- more advanced retry and backoff strategies
 
+AI service availability is treated as an infrastructure concern rather than an invoice validation failure.
 ---
 
 ## 20. AI Cost Considerations
