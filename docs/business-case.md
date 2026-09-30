@@ -251,7 +251,6 @@ Operational Savings
 - Implementation Costs
 - Maintenance Costs
 ```
-
 A more complete ROI calculation would be:
 
 ```text
