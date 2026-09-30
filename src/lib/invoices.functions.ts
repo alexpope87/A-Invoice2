@@ -67,10 +67,16 @@ const RETRYABLE_STATUS = new Set([502, 503, 504, 520, 521, 522, 523, 524]);
  * never surface that raw HTML to the UI.
  */
 function dbError(error: { message?: string } | null | undefined): Error {
-  const raw = error?.message ?? "";
-  if (/<!DOCTYPE html|<html/i.test(raw)) {
-    const code = raw.match(/Error code (\d{3})/i)?.[1] ?? raw.match(/\|\s*(\d{3}):/)?.[1];
-    console.error("Supabase upstream returned an HTML error page", { code: code ?? "unknown" });
+  const raw = (error?.message ?? "").trim();
+  // Cloudflare in front of Supabase returns either a full HTML page (5xx such
+  // as 521) or a bare "error code: 1016" (origin DNS error) when the database
+  // host is unreachable or paused.
+  const isHtml = /<!DOCTYPE html|<html/i.test(raw);
+  const bareCode = raw.match(/^error code:\s*(\d{3,4})$/i)?.[1];
+  if (isHtml || bareCode) {
+    const code =
+      bareCode ?? raw.match(/Error code (\d{3,4})/i)?.[1] ?? raw.match(/\|\s*(\d{3}):/)?.[1];
+    console.error("Supabase upstream unavailable", { code: code ?? "unknown" });
     return new Error(
       `The invoice database is temporarily unavailable${code ? ` (error ${code})` : ""}. Please try again in a few minutes.`,
     );
