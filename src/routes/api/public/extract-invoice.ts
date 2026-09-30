@@ -16,7 +16,7 @@ import { createClient } from "@supabase/supabase-js";
 import { GoogleGenAI, Type } from "@google/genai";
 
 // Current Gemini model with document/PDF understanding + structured output.
-const MODEL = "gemini-3.6-flash";
+const MODEL = "gemini-3.5-flash-lite";
 
 const RESPONSE_SCHEMA = {
   type: Type.OBJECT,
