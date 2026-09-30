@@ -29,23 +29,59 @@ function client() {
           h.delete("Authorization");
         }
         h.set("apikey", key);
-        // Transient network hiccups ("fetch failed") would otherwise blank the page.
+        // Transient network hiccups ("fetch failed") and upstream gateway errors
+        // (Cloudflare 502/503/504/52x) would otherwise blank the page. Only
+        // idempotent reads are retried on 5xx; writes are never replayed.
+        const method = (init?.method ?? "GET").toUpperCase();
+        const idempotent = method === "GET" || method === "HEAD";
         let lastError: unknown;
+        let lastResponse: Response | undefined;
         for (let attempt = 0; attempt < 3; attempt++) {
           try {
-            return await fetch(input, { ...init, headers: h });
+            const res = await fetch(input, { ...init, headers: h });
+            if (idempotent && RETRYABLE_STATUS.has(res.status) && attempt < 2) {
+              lastResponse = res;
+              await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+              continue;
+            }
+            return res;
           } catch (e) {
             lastError = e;
             await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
           }
         }
+        if (lastResponse) return lastResponse;
         throw new Error(
           `Could not reach the invoice database. ${lastError instanceof Error ? lastError.message : ""}`.trim(),
         );
       },
-
     },
   });
+}
+
+const RETRYABLE_STATUS = new Set([502, 503, 504, 520, 521, 522, 523, 524]);
+
+/**
+ * Turn a Supabase error into a short, user-safe message. When the database host
+ * is down, the upstream proxy returns a full HTML error page as the "message";
+ * never surface that raw HTML to the UI.
+ */
+function dbError(error: { message?: string } | null | undefined): Error {
+  const raw = (error?.message ?? "").trim();
+  // Cloudflare in front of Supabase returns either a full HTML page (5xx such
+  // as 521) or a bare "error code: 1016" (origin DNS error) when the database
+  // host is unreachable or paused.
+  const isHtml = /<!DOCTYPE html|<html/i.test(raw);
+  const bareCode = raw.match(/^error code:\s*(\d{3,4})$/i)?.[1];
+  if (isHtml || bareCode) {
+    const code =
+      bareCode ?? raw.match(/Error code (\d{3,4})/i)?.[1] ?? raw.match(/\|\s*(\d{3}):/)?.[1];
+    console.error("Supabase upstream unavailable", { code: code ?? "unknown" });
+    return new Error(
+      `The invoice database is temporarily unavailable${code ? ` (error ${code})` : ""}. Please try again in a few minutes.`,
+    );
+  }
+  return new Error(raw.length > 300 ? `${raw.slice(0, 300)}…` : raw || "Database request failed");
 }
 
 function asObject(value: unknown): Record<string, unknown> | undefined {
