@@ -196,12 +196,21 @@ Possible production-oriented improvements include:
 
 ## 📚 Project Documentation
 
-Additional documentation will cover:
+- [Business Case & ROI](docs/business-case.md)
+- [System Architecture](docs/architecture.md)
+- [AI Workflow](docs/ai-workflow.md)
+- [Testing & Validation](docs/testing.md)
+  ## ✅ Validation Status
 
-- Business Case & ROI
-- System Architecture
-- AI Workflow
-- Testing & Validation
+The core workflow has been tested end-to-end using a real invoice PDF:
+
+**PDF Upload → Gemini Extraction → Database Persistence → Deterministic Validation → Risk Classification → Automated Decision**
+
+A successful test produced a `LOW RISK → AUTO-APPROVED` decision after all validation checks passed.
+
+The exception workflow was also tested through the Review Queue, where a `HIGH RISK → NEEDS REVIEW` invoice was manually rejected by a human reviewer.
+
+See [Testing & Validation](docs/testing.md) for the complete test scenarios.
 
 ## 📌 Project Status
 
