@@ -458,7 +458,7 @@ If AI processing fails:
 - the user receives a processing error
 - processing can be retried
 
-The current implementation also includes retry handling for temporary Gemini service availability errors.
+The current implementation distinguishes between temporary Gemini service availability errors and API quota errors. A temporary `503 UNAVAILABLE` response can trigger one controlled retry, while `429 RESOURCE_EXHAUSTED` does not trigger automatic retries. In both cases, the source PDF remains stored and no fabricated extraction result is created.
 
 If automated decision processing fails, the invoice should not be silently approved.
 
@@ -486,10 +486,9 @@ The current policies are intended for development/demo use.
 
 A production version would require authenticated, organization-specific access policies.
 
-### Synthetic Testing
+ ### Test Data
 
-Development and portfolio demonstrations should use synthetic or non-sensitive invoice data.
-
+Development primarily uses synthetic or non-sensitive invoice data. Real documents used for validation should not contain sensitive or confidential business information.
 ---
 
 ## 16. Technology Responsibilities
