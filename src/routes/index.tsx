@@ -24,7 +24,7 @@ import {
 import { ConfidenceMeter, RiskBadge, StatusBadge } from "@/components/badges";
 import { KpiCard } from "@/components/kpi-card";
 import { PageHeader } from "@/components/page-header";
-import { EmptyPanel } from "@/components/query-state";
+import { EmptyPanel, ErrorPanel } from "@/components/query-state";
 import { Button } from "@/components/ui/button";
 import { formatDate, formatMoney } from "@/data/invoices";
 import { getDashboardData } from "@/lib/invoices.functions";
@@ -36,8 +36,14 @@ const dashboardQuery = queryOptions({
 
 export const Route = createFileRoute("/")({
   loader: ({ context }) => {
-    context.queryClient.ensureQueryData(dashboardQuery);
+    // Prefetch only; a failed prefetch must not reject the loader.
+    context.queryClient.ensureQueryData(dashboardQuery).catch(() => undefined);
   },
+  errorComponent: ({ error, reset }) => (
+    <div className="mx-auto max-w-[1400px]">
+      <ErrorPanel message={error.message} onRetry={reset} />
+    </div>
+  ),
   head: () => ({
     meta: [
       { title: "Dashboard — InvoiceAI invoice automation" },
