@@ -2,8 +2,80 @@
 
 **AI-powered invoice processing and decision automation MVP**
 
-InvoiceAI is a business automation project that explores how Generative AI can reduce manual work in invoice processing while keeping deterministic business rules and human oversight in the decision-making process.
+A functional portfolio MVP that explores how Generative AI can automate invoice processing while combining AI extraction, deterministic business rules and human oversight.
 
+Built independently to explore the complete process of turning a business problem into a working AI-enabled application: **workflow design → rapid prototyping → AI integration → validation → testing → iteration.**
+
+### 🔗 Project Links
+
+**Live Demo:** [Add URL]  
+**GitHub:** https://github.com/alexpope87/A-Invoice2  
+**Documentation:** See the `/docs` folder
+
+---
+
+## 🚀 What I Built
+
+I designed and developed InvoiceAI as an end-to-end AI automation MVP.
+
+The project includes:
+
+- PDF invoice upload and private document storage
+- AI-powered structured data extraction using Google Gemini
+- deterministic validation rules
+- risk classification and automated routing
+- human review workflow for exceptions
+- manual approval and rejection
+- error handling and API retry logic
+- invoice history and detailed processing results
+- KPI and automation dashboard
+- end-to-end testing across successful and exception scenarios
+
+The objective was not simply to integrate an LLM, but to design a **reliable business workflow around AI**, where AI handles document understanding while deterministic rules and human oversight control business decisions.
+
+---
+
+## 📸 Demo
+
+### Dashboard
+*[Insert dashboard screenshot]*
+
+### AI Extraction & Validation
+*[Insert invoice detail screenshot]*
+
+### Human Review Queue
+*[Insert review queue screenshot]*
+
+---
+
+## 🔄 How It Works
+
+```text
+Invoice PDF
+      ↓
+Google Gemini
+      ↓
+Structured Data Extraction
+      ↓
+Deterministic Validation
+      ↓
+Risk Classification
+      ↓
+Decision Engine
+      ↓
+LOW RISK ─────────→ AUTO-APPROVED
+MEDIUM/HIGH RISK ─→ HUMAN REVIEW
+                           ↓
+                    APPROVE / REJECT
+```
+
+**AI extracts → rules validate → system routes → humans handle exceptions.**
+
+Gemini does not autonomously approve or reject invoices. The LLM is used for document understanding, while deterministic business rules control automated routing and final rejection remains a human decision.
+
+---
+
+## 🎯 Business Problem
 ## 🎯 Business Problem
 
 Invoice processing often requires employees to manually:
